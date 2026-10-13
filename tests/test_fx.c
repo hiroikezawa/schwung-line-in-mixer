@@ -126,11 +126,9 @@ static void functional(void)
     check(exact_internal(in, inner, ext1k, 200), "MIX 0: output == internal, bit for bit");
     set(in, "mix", "1"); set(in, "mute", "on");
     check(exact_internal(in, inner, ext1k, 200), "MUTE on: output == internal, bit for bit");
-    snprintf(msg, sizeof msg, "MUTE on: status MUTED (%g)", getf(in, "status"));
-    check(getf(in, "status") == 1, msg);
     set(in, "mute", "off");
     const char *knobs[][2] = {{"an_gain", "24"}, {"usb_gain", "-24"}, {"an_hpf", "500"}, {"an_lpf", "2000"},
-                              {"an_pan", "-100"}, {"width", "200"}, {"duck", "1"}, {"source", "USB-C"}};
+                              {"an_pan", "-100"}, {"source", "USB-C"}};
     for (unsigned k = 0; k < sizeof knobs / sizeof *knobs; ++k) set(in, knobs[k][0], knobs[k][1]);
     check(exact_internal(in, inner, silent, 200), "silent input, every knob moved: output == internal, bit for bit");
     api->destroy_instance(in);
@@ -181,39 +179,13 @@ static void functional(void)
     check(fabs(db(r.rms_l * sqrt(2) / 0.25)) < 0.05, "USB LPF does not affect SOURCE ANALOG");
     api->destroy_instance(in);
 
-    /* 5. pan and width */
+    /* 5. pan */
     in = fresh();
     set(in, "an_pan", "-100");
     r = run(in, silent, ext1k, 200, 20, 0);
     snprintf(msg, sizeof msg, "ANALOG PAN -100: L %.2f dB, R %.1f dB", db(r.rms_l * sqrt(2) / 0.25), db(r.rms_r * sqrt(2) / 0.25));
     check(fabs(db(r.rms_l * sqrt(2) / 0.25)) < 0.05 && db(r.rms_r) < -80, msg);
     api->destroy_instance(in);
-    in = fresh();
-    set(in, "width", "0");
-    r = run(in, silent, (tone_t){1000, 1000, 0.25, 0}, 200, 20, 0); /* input only on L */
-    snprintf(msg, sizeof msg, "WIDTH 0%%: L-only input lands in both at -6 dB (L %.2f, R %.2f dB)",
-             db(r.rms_l * sqrt(2) / 0.25), db(r.rms_r * sqrt(2) / 0.25));
-    check(fabs(db(r.rms_l * sqrt(2) / 0.25) + 6.02) < 0.1 && fabs(db(r.rms_r * sqrt(2) / 0.25) + 6.02) < 0.1, msg);
-    set(in, "width", "100");
-    r = run(in, silent, (tone_t){1000, 1000, 0.25, 0}, 200, 20, r.t);
-    check(fabs(db(r.rms_l * sqrt(2) / 0.25)) < 0.05 && db(r.rms_r) < -80, "WIDTH 100%: unchanged");
-    api->destroy_instance(in);
-
-    /* 6. duck: the internal sound turns the external part down */
-    in = fresh();
-    set(in, "duck", "1");
-    r = run(in, (tone_t){0, 0, 0.5, 0.5}, ext1k, 200, 20, 0); /* loud internal (DC) */
-    snprintf(msg, sizeof msg, "DUCK 100%% under a loud internal: ext %.1f dB", db(r.rms_l * sqrt(2) / 0.25));
-    check(db(r.rms_l * sqrt(2) / 0.25) < -60, msg);
-    set(in, "duck", "0.5");
-    r = run(in, (tone_t){0, 0, 0.5, 0.5}, ext1k, 200, 20, r.t);
-    snprintf(msg, sizeof msg, "DUCK 50%% under a loud internal: ext %.2f dB (want -6)", db(r.rms_l * sqrt(2) / 0.25));
-    check(fabs(db(r.rms_l * sqrt(2) / 0.25) + 6.02) < 0.2, msg);
-    set(in, "duck", "1");
-    r = run(in, silent, ext1k, 400, 20, r.t); /* internal stops: ext returns */
-    check(fabs(db(r.rms_l * sqrt(2) / 0.25)) < 0.1, "DUCK releases when the internal sound stops");
-    api->destroy_instance(in);
-
     /* 7. clicks: MIX 0 -> 1 and a SOURCE switch glide (DC input, no jump) */
     in = fresh();
     set(in, "mix", "0");
@@ -247,41 +219,29 @@ static void functional(void)
     }
     api->destroy_instance(in);
 
-    /* 9. meters and status */
-    in = fresh();
-    run(in, silent, ext1k, 20, 1, 0);
-    const float lvl = getf(in, "in_level"); /* a read consumes the peak hold */
-    snprintf(msg, sizeof msg, "INPUT level reads the input peak: %.1f dB (want -12.0)", lvl);
-    check(fabs(lvl + 12.0) < 0.3, msg);
-    check(getf(in, "in_level") == -60.0f, "INPUT level peak hold resets on read");
-    check(getf(in, "status") == 0, "status OK with signal");
-    run(in, silent, silent, (int)(2.1 * SR / N), 1, 0);
-    check(getf(in, "status") == 3, "status NO SIG after 2 s of silence");
-    run(in, silent, ext1k, 2, 1, 0);
-    check(getf(in, "status") == 0, "status back to OK on signal");
-    api->destroy_instance(in);
-
     /* 10. presets: state round trip, partial state, garbage */
     in = fresh();
     const char *vals[][2] = {{"mix", "0.37"}, {"an_level", "0.5"}, {"usb_level", "0.25"}, {"source", "USB-C"},
-                             {"an_gain", "-3.5"}, {"usb_gain", "12"}, {"duck", "0.6"}, {"mute", "on"},
+                             {"an_gain", "-3.5"}, {"usb_gain", "12"}, {"mute", "on"},
                              {"an_hpf", "120"}, {"usb_hpf", "300"}, {"an_lpf", "8000"}, {"usb_lpf", "4500"},
-                             {"an_pan", "-40"}, {"usb_pan", "25"}, {"width", "150"}};
-    for (unsigned k = 0; k < 15; ++k) set(in, vals[k][0], vals[k][1]);
+                             {"an_pan", "-40"}, {"usb_pan", "25"}};
+    for (unsigned k = 0; k < 13; ++k) set(in, vals[k][0], vals[k][1]);
     char state[16384];
     check(api->get_param(in, "state", state, sizeof state) > 0, "state serialises");
     void *b2 = api->create_instance(".", state);
     int same = 1;
-    for (unsigned k = 0; k < 15; ++k) same &= getf(in, vals[k][0]) == getf(b2, vals[k][0]);
+    for (unsigned k = 0; k < 13; ++k) same &= getf(in, vals[k][0]) == getf(b2, vals[k][0]);
     printf("       state: %s\n", state);
-    check(same, "create(state) restores all 15 parameters");
+    check(same, "create(state) restores all 13 parameters");
     void *b3 = fresh();
     set(b3, "state", state);
     same = 1;
-    for (unsigned k = 0; k < 15; ++k) same &= getf(in, vals[k][0]) == getf(b3, vals[k][0]);
-    check(same, "set_param(state) restores all 15 parameters");
-    set(b3, "state", "{\"v\":1,\"width\":50}");
-    check(getf(b3, "width") == 50 && getf(b3, "mix") == getf(in, "mix"), "partial state changes only its keys");
+    for (unsigned k = 0; k < 13; ++k) same &= getf(in, vals[k][0]) == getf(b3, vals[k][0]);
+    check(same, "set_param(state) restores all 13 parameters");
+    set(b3, "state", "{\"v\":1,\"an_pan\":50,\"duck\":1,\"width\":50}");
+    check(getf(b3, "an_pan") == 50 && getf(b3, "mix") == getf(in, "mix"), "partial state changes only its keys (v0.1 duck/width ignored)");
+    check(isnan(getf(b3, "duck")) && isnan(getf(b3, "width")) && isnan(getf(b3, "status")) && isnan(getf(b3, "in_level")),
+          "removed keys (duck, width, status, in_level) are gone");
     set(b3, "mix", "nan"); set(b3, "mix", ""); set(b3, "mix", "abc"); set(b3, "source", "BOTH");
     check(getf(b3, "mix") == getf(in, "mix") && getf(b3, "source") == 1, "nan / empty / unknown values are ignored");
     set(b3, "an_hpf", "5"); set(b3, "an_lpf", "99999"); set(b3, "an_gain", "-100");
@@ -292,32 +252,8 @@ static void functional(void)
     check(api->get_param(b3, "nope", state, sizeof state) < 0, "unknown key: -1");
     api->destroy_instance(in); api->destroy_instance(b2); api->destroy_instance(b3);
 
-    /* 11. MIDI CC 20-34 (through the dlsym'd export, as the chain host calls it) */
-    {
-        typedef void (*midi_fn)(void *, const uint8_t *, int, int);
-        midi_fn m = (midi_fn)dlsym(g_so, "move_audio_fx_on_midi");
-        check(m != NULL, "exports move_audio_fx_on_midi");
-        if (m) {
-            in = fresh();
-            const uint8_t c1[3] = {0xB3, 20, 0}, c2[3] = {0xB0, 23, 64}, c3[3] = {0xB0, 34, 127},
-                          c4[3] = {0xB0, 28, 127}, c5[3] = {0xB0, 27, 127}, c6[3] = {0xB0, 21, 64},
-                          c7[3] = {0xB0, 35, 0}, c8[3] = {0xB0, 20, 127};
-            m(in, c1, 3, MOVE_MIDI_SOURCE_EXTERNAL);
-            m(in, c2, 3, MOVE_MIDI_SOURCE_EXTERNAL);
-            m(in, c3, 3, MOVE_MIDI_SOURCE_INTERNAL);
-            m(in, c4, 3, MOVE_MIDI_SOURCE_EXTERNAL);
-            m(in, c5, 3, MOVE_MIDI_SOURCE_EXTERNAL);
-            m(in, c6, 3, MOVE_MIDI_SOURCE_EXTERNAL);
-            m(in, c7, 3, MOVE_MIDI_SOURCE_EXTERNAL);
-            check(getf(in, "mix") == 0 && getf(in, "source") == 1 && getf(in, "width") == 200 &&
-                  getf(in, "an_hpf") == 1000 && getf(in, "mute") == 1 && fabsf(getf(in, "an_level") - 64 / 127.0f) < 1e-3,
-                  "CC 20 MIX, 23 SOURCE, 27 MUTE, 21 AN LVL, 28 AN HPF, 34 WIDTH");
-            m(in, c8, 3, MOVE_MIDI_SOURCE_FX_BROADCAST);
-            m(in, c8, 3, MOVE_MIDI_SOURCE_HOST);
-            check(getf(in, "mix") == 0, "CCs from other tracks (FX_BROADCAST) and the host are ignored");
-            api->destroy_instance(in);
-        }
-    }
+    /* 11. no MIDI CC export (removed in 0.2.0) */
+    check(dlsym(g_so, "move_audio_fx_on_midi") == NULL, "no move_audio_fx_on_midi export");
 
     /* 12. many instances (pool + calloc fallback) */
     void *many[80];
@@ -351,14 +287,13 @@ int main(int argc, char **argv)
         const tone_t inner = {220, 330, 0.3, 0.3}, ext1k = {1000, 1000, 0.25, 0.25};
         void *in = fresh();
         check(exact_internal(in, inner, ext1k, 200), "FB GUARD (speaker, no line-in cable, ANALOG): internal only");
-        check(getf(in, "status") == 2, "status FB GUARD");
         set(in, "source", "USB-C");
         run_t r = run(in, (tone_t){0, 0, 0, 0}, ext1k, 200, 20, 0);
-        check(fabs(r.rms_l - 0.25 / sqrt(2)) < 0.002 && getf(in, "status") == 0, "USB-C is not guarded (not the mic)");
+        check(fabs(r.rms_l - 0.25 / sqrt(2)) < 0.002, "USB-C is not guarded (not the mic)");
         set(in, "source", "ANALOG");
         c[59] = 1; /* cable plugged in */
         r = run(in, (tone_t){0, 0, 0, 0}, ext1k, 200, 20, 0);
-        check(fabs(r.rms_l - 0.25 / sqrt(2)) < 0.002 && getf(in, "status") == 0, "cable plugged in: ANALOG passes");
+        check(fabs(r.rms_l - 0.25 / sqrt(2)) < 0.002, "cable plugged in: ANALOG passes");
         c[59] = 0; c[58] = 0; /* headphones */
         r = run(in, (tone_t){0, 0, 0, 0}, ext1k, 200, 20, 0);
         check(fabs(r.rms_l - 0.25 / sqrt(2)) < 0.002, "headphones (speaker off): mic passes");
@@ -370,7 +305,7 @@ int main(int argc, char **argv)
 
     /* On a Move the module reads the REAL jack state: speaker on and no
      * line-in cable engages its feedback guard, and every ANALOG test fails
-     * by design. Say so instead of leaving 21 bare FAILs. */
+     * by design. Say so instead of leaving bare FAILs. */
     {
         FILE *f = fopen("/dev/shm/schwung-control", "rb");
         uint8_t b[2];
@@ -396,7 +331,6 @@ int main(int argc, char **argv)
         for (int i = 0; i < 2 * N; ++i) ref[i] = io[i] = (int16_t)(i * 97 - 9000);
         api->process_block(in, io, N);
         check(!memcmp(io, ref, sizeof io), "no mailbox: internal passes untouched");
-        check(getf(in, "status") == 3, "no mailbox: status NO SIG");
         api->destroy_instance(in);
     }
 
@@ -408,7 +342,7 @@ int main(int argc, char **argv)
 
     if (argc > 2 && !strcmp(argv[2], "cpu")) {
         void *in = fresh();
-        set(in, "an_hpf", "80"); set(in, "an_lpf", "12000"); set(in, "duck", "0.5"); set(in, "width", "120");
+        set(in, "an_hpf", "80"); set(in, "an_lpf", "12000"); set(in, "an_pan", "30");
         int16_t io[2 * N];
         for (int i = 0; i < 2 * N; ++i) { io[i] = (int16_t)(i * 37); ain()[i] = (int16_t)(i * 53 - 5000); }
         const int blocks = 20000;

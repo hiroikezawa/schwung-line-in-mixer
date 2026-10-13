@@ -5,7 +5,7 @@ Schwung スロットの**内部音源の上に加算ミックス**する Audio F
 
 - スロットの Sound Generator はそのまま残ります。外部入力のために Sound Generator を
   置き換えたり占有したりしません。
-- MIX・SOURCE・MUTE・DUCK を動かしても、内部音源の音量・音質は変わりません。
+- MIX・SOURCE・MUTE を動かしても、内部音源の音量・音質は変わりません。
   外部入力の分が 0 のときは、出力は入力（内部音源）とビット単位で同一です。
 - 後段の Audio FX（Reverb / Delay など）と Master FX は、内部音源と外部入力の
   両方にかかります。
@@ -72,8 +72,8 @@ Schwung Track 4
 SOURCE が ANALOG で、内蔵スピーカーから音が出ていて、LINE IN にケーブルが
 刺さっていないとき、入力は内蔵マイクがスピーカーの音を拾っている状態です。
 Schwung 本体のフィードバック保護は Sound Generator にしか効かないため、
-このモジュールはこの状態で外部入力を自動でミュートし、INFO ページの STATE に
-`FB GUARD` と表示します。ケーブルを刺すかヘッドホンを使うと解除されます。
+このモジュールはこの状態で外部入力を自動でミュートします（画面表示はありません）。
+ケーブルを刺すかヘッドホンを使うと解除されます。
 USB-C ストリップ（SOURCE = USB-C）はマイクではないので対象外です。
 
 ジャックの状態は Schwung の共有メモリ `/schwung-control`
@@ -81,7 +81,7 @@ USB-C ストリップ（SOURCE = USB-C）はマイクではないので対象外
 
 ## パラメーター
 
-### Page 1：MIX
+### Page 1：MIX（7 ノブ）
 
 | ノブ | 名前 | 内容 | 範囲（初期値） |
 |---|---|---|---|
@@ -91,61 +91,37 @@ USB-C ストリップ（SOURCE = USB-C）はマイクではないので対象外
 | 4 | SOURCE | 使うストリップ：ANALOG / USB-C | ANALOG |
 | 5 | AN GN | ANALOG ストリップのゲイン | −24〜+24 dB（0 dB） |
 | 6 | USB GN | USB ストリップのゲイン | −24〜+24 dB（0 dB） |
-| 7 | DUCK | 内部音源が鳴っている間、外部入力を下げる量 | 0–100 %（0 %） |
-| 8 | MUTE | 外部入力をミュート（内部音源はそのまま） | off / on（off） |
+| 7 | MUTE | 外部入力をミュート（内部音源はそのまま） | off / on（off） |
 
-### Page 2：TONE
+### Page 2：TONE（6 ノブ）
 
 | ノブ | 名前 | 内容 | 範囲（初期値） |
 |---|---|---|---|
-| 1 | MIX | Page 1 と同じパラメーター | |
-| 2 | AN HPF | ANALOG ハイパス（12 dB/oct）。20 Hz = オフ | 20–1000 Hz（20） |
-| 3 | USB HPF | USB ハイパス。20 Hz = オフ | 20–1000 Hz（20） |
-| 4 | AN LPF | ANALOG ローパス（12 dB/oct）。20 kHz = オフ | 1–20 kHz（20 k） |
-| 5 | USB LPF | USB ローパス。20 kHz = オフ | 1–20 kHz（20 k） |
-| 6 | AN PAN | ANALOG のバランス（ステレオ入力の左右バランス） | −100〜+100（0） |
-| 7 | USB PAN | USB のバランス | −100〜+100（0） |
-| 8 | WIDTH | 外部入力の M/S 幅。0 % モノ、100 % そのまま、200 % 広げる | 0–200 %（100 %） |
-
-### Page 3：INFO（読み取り専用）
-
-| 名前 | 内容 |
-|---|---|
-| STATE | OK / MUTED / FB GUARD / NO SIG（入力が −70 dBFS 未満で 2 秒以上） |
-| INPUT | 入力のピークレベル（ゲイン前、dBFS） |
+| 1 | AN HPF | ANALOG ハイパス（12 dB/oct）。20 Hz = オフ | 20–1000 Hz（20） |
+| 2 | USB HPF | USB ハイパス。20 Hz = オフ | 20–1000 Hz（20） |
+| 3 | AN LPF | ANALOG ローパス（12 dB/oct）。20 kHz = オフ | 1–20 kHz（20 k） |
+| 4 | USB LPF | USB ローパス。20 kHz = オフ | 1–20 kHz（20 k） |
+| 5 | AN PAN | ANALOG のバランス（ステレオ入力の左右バランス） | −100〜+100（0） |
+| 6 | USB PAN | USB のバランス | −100〜+100（0） |
 
 Schwung のページ構成の都合で、Page 1 の見出しは「Main」と表示されます。
 
 ### 計算式
 
 ```c
-ext  = width( (1 - w) * strip(ANALOG) + w * strip(USB) )   // w = SOURCE（クロスフェード）
+ext   = (1 - w) * strip(ANALOG) + w * strip(USB)   // w = SOURCE（15 ms クロスフェード）
 strip = pan( level * gain * LPF( HPF(input) ) )
-outL = internalL + extL * MIX * duck * (MUTE ? 0 : 1) * (FB GUARD ? 0 : 1)
-outR = internalR + extR * MIX * duck * (MUTE ? 0 : 1) * (FB GUARD ? 0 : 1)
-duck = 1 - DUCK * min(1, env(internal) / 0.25)   // アタック 1 ms、リリース 200 ms
+outL  = internalL + extL * MIX * (MUTE ? 0 : 1) * (FB GUARD ? 0 : 1)
+outR  = internalR + extR * MIX * (MUTE ? 0 : 1) * (FB GUARD ? 0 : 1)
 ```
 
-DUCK 100 % では、内部音源のピークが −12 dBFS 以上のあいだ外部入力が消えます。
 合計は int16 の範囲でクリップします（リミッターはありません）。
-ゲイン・レベル・パン・幅・MIX の変化は 20 ms でなめらかに変わります（クリックなし）。
-
-### MIDI CC
-
-スロットの受信チャンネルの CC（絶対値、0–127 がパラメーターの全範囲）:
-
-| CC | パラメーター |
-|---|---|
-| 20–27 | Page 1 のノブ 1–8（MIX, AN LVL, USB LVL, SOURCE, AN GN, USB GN, DUCK, MUTE） |
-| 28–34 | Page 2 のノブ 2–8（AN HPF, USB HPF, AN LPF, USB LPF, AN PAN, USB PAN, WIDTH） |
-
-SOURCE は 0–63 で ANALOG、64–127 で USB-C。MUTE は 0–63 で off、64–127 で on。
-ほかのトラックから届く MIDI（FX ブロードキャスト）は無視します。
+ゲイン・レベル・パン・MIX の変化は 20 ms でなめらかに変わります（クリックなし）。
 
 ### プリセット
 
-全 15 パラメーターが `state` として保存・復元されます（Schwung のスロット自動保存、
-User Presets）。
+全 13 パラメーターが `state` として保存・復元されます（Schwung のスロット自動保存、
+User Presets）。v0.1.0 で保存した DUCK と WIDTH の値は読み込み時に無視されます。
 
 ## 使い方
 
@@ -182,8 +158,8 @@ scripts/install.py http://<Move の IP>:7700
 
 | 項目 | 実装 | ビルド / PC テスト | 実機 |
 |---|---|---|---|
-| 物理 LINE IN（ANALOG） | 済 | 済 | **未検証** |
-| USB-C Audio | 済（Move 側で入力を USB-C にしたとき） | 済（ダミー入力） | **未検証** |
+| 物理 LINE IN（ANALOG） | 済 | 済 | v0.1.0 で動作報告あり。仕様のテスト項目ごとの確認は未実施 |
+| USB-C Audio | 済（Move 側で入力を USB-C にしたとき） | 済（ダミー入力） | 同上 |
 | BOTH（同時） | **実装しない**（1 本のストリームしかないため） | — | — |
 
 ## ライセンス

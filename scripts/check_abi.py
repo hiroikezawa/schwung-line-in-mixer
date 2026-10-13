@@ -10,6 +10,4 @@ header = subprocess.check_output(["readelf", "-h", sys.argv[1]], text=True)
 assert "AArch64" in header
 symbols = subprocess.check_output(["readelf", "-Ws", "--dyn-syms", sys.argv[1]], text=True)
 assert "move_audio_fx_init_v2" in symbols
-# Without this export the chain host never delivers MIDI (CC) to an audio FX.
-assert "move_audio_fx_on_midi" in symbols
-print("PASS: AArch64/audio FX v2 + on_midi exports, maximum required GLIBC", ".".join(map(str, max(versions))))
+print("PASS: AArch64/audio FX v2 export, maximum required GLIBC", ".".join(map(str, max(versions))))

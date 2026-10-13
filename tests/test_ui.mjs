@@ -1,6 +1,6 @@
 /* module.json through Schwung's OWN page planner and contract validator (the
- * code the device runs): page 1 = MIX, page 2 = TONE (MIX shared on knob 1),
- * page 3 = INFO (read-only), labels fit, values format.
+ * code the device runs): page 1 = MIX (7 knobs), page 2 = TONE (6 knobs),
+ * labels fit, values format.
  *
  *   node tests/test_ui.mjs <schwung-root> <project-root>
  *
@@ -31,11 +31,10 @@ const res = planPages({ hierarchy: caps.ui_hierarchy, chainParams: caps.chain_pa
 const pages = res.pages || res;
 const knobPages = pages.filter((pg) => (pg.keys || []).length);
 const want = [
-    ["mix", "an_level", "usb_level", "source", "an_gain", "usb_gain", "duck", "mute"],
-    ["mix", "an_hpf", "usb_hpf", "an_lpf", "usb_lpf", "an_pan", "usb_pan", "width"],
-    ["status", "in_level"],
+    ["mix", "an_level", "usb_level", "source", "an_gain", "usb_gain", "mute"],
+    ["an_hpf", "usb_hpf", "an_lpf", "usb_lpf", "an_pan", "usb_pan"],
 ];
-check(knobPages.length === 3, `three knob pages (got ${knobPages.length}: ${knobPages.map((p) => p.title || p.name).join(", ")})`);
+check(knobPages.length === 2, `two knob pages (got ${knobPages.length}: ${knobPages.map((p) => p.title || p.name).join(", ")})`);
 want.forEach((w, i) => {
     const got = knobPages[i] ? knobPages[i].keys : [];
     check(JSON.stringify(got) === JSON.stringify(w), `page ${i + 1} (${knobPages[i] && (knobPages[i].title || knobPages[i].name)}) knobs = ${got.join(" ")}`);
@@ -50,12 +49,11 @@ for (const c of caps.chain_params) {
 }
 const meta = (k) => caps.chain_params.find((c) => c.key === k);
 const fmt = (k, v) => formatParamValue(v, meta(k));
-for (const [k, v] of [["mix", 1], ["an_level", 0.8], ["source", 1], ["an_gain", -6], ["duck", 0.5], ["mute", 1],
-                      ["an_hpf", 20], ["an_hpf", 1000], ["an_lpf", 20000], ["usb_lpf", 2500], ["an_pan", -100],
-                      ["width", 200], ["status", 2], ["in_level", -12.3]])
+for (const [k, v] of [["mix", 1], ["an_level", 0.8], ["source", 1], ["an_gain", -6], ["mute", 1],
+                      ["an_hpf", 20], ["an_hpf", 1000], ["an_lpf", 20000], ["usb_lpf", 2500], ["an_pan", -100]])
     console.log(`  ${k.padEnd(9)} ${String(v).padStart(5)} shows ${fmt(k, v)}`);
 check(fmt("mix", 1) === "100%", "Mix 1 shows 100%");
-check(["status", "in_level"].every((k) => meta(k).access === "read" && meta(k).live === true), "readouts are read-only + live");
+check(caps.chain_params.every((c) => !c.access), "no readouts");
 check(JSON.stringify(meta("source").options) === '["ANALOG","USB-C"]', "SOURCE = ANALOG / USB-C (no BOTH: one input stream, see README)");
 console.log(failures ? `FAILED: ${failures}` : "PASS");
 process.exit(failures ? 1 : 0);

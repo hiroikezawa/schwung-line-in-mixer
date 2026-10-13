@@ -45,24 +45,17 @@
         " USB-C",
         "5 AN GN  6 USB GN",
         " -24..+24 dB",
-        "7 DUCK: input dips",
-        " while the sound",
-        " generator plays",
-        "8 MUTE: input off"
+        "7 MUTE: input off"
       ]
     },
     {
       "title": "TONE page",
       "lines": [
-        "1 MIX (same knob)",
-        "2 AN HPF 3 USB HPF",
+        "1 AN HPF 2 USB HPF",
         " 20 Hz = off",
-        "4 AN LPF 5 USB LPF",
+        "3 AN LPF 4 USB LPF",
         " 20 kHz = off",
-        "6 AN PAN 7 USB PAN",
-        "8 WIDTH: 0% mono,",
-        " 100% as is, 200%",
-        " wide"
+        "5 AN PAN 6 USB PAN"
       ]
     },
     {
@@ -73,21 +66,8 @@
         "Move's built-in mic",
         "hears the speaker.",
         "The input is muted",
-        "then and STATE on",
-        "the Info page shows",
-        "FB GUARD. Plug in a",
+        "then. Plug in a",
         "cable or headphones."
-      ]
-    },
-    {
-      "title": "MIDI CC",
-      "lines": [
-        "Slot channel:",
-        "CC20-27 MIX page",
-        " knobs 1-8",
-        "CC28-34 TONE page",
-        " knobs 2-8",
-        "0-127 = full range"
       ]
     }
   ]

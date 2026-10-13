@@ -1,13 +1,13 @@
 /* Line In Mixer - Schwung audio FX: adds Move's audio input on top of this
  * chain's own sound (the slot's sound generator and any FX before this one).
  *
- *   out = internal + ext * MIX * duck * (MUTE ? 0 : 1) * (FB GUARD ? 0 : 1)
- *   ext = width( (1 - w) * strip(ANALOG) + w * strip(USB) ),  w = SOURCE
+ *   out = internal + ext * MIX * (MUTE ? 0 : 1) * (FB GUARD ? 0 : 1)
+ *   ext = (1 - w) * strip(ANALOG) + w * strip(USB),  w = SOURCE
  *   strip = pan( level * gain * LPF( HPF( input ) ) )
  *
  * The internal signal is never scaled, filtered or clipped by anything here
  * except the final int16 clamp of the sum: with the external part at zero the
- * output is the input bit for bit. MIX, SOURCE, MUTE and DUCK act only on the
+ * output is the input bit for bit. MIX, SOURCE and MUTE act only on the
  * external part.
  *
  * WHERE THE INPUT COMES FROM (Schwung 1.7.3 / Move 2.x, read from the source)
@@ -35,19 +35,13 @@
  *   With SOURCE = ANALOG, nothing in the line-in jack and the built-in speaker
  *   playing, the input is the built-in microphone listening to the speaker.
  *   Schwung's own guard only covers sound generators, so this module mutes its
- *   external part itself in exactly that state (STATUS shows FB GUARD). The
+ *   external part itself in exactly that state. The
  *   jack states are the shim's (shadow_control_t.speaker_active /
  *   line_in_connected, /schwung-control), mapped read-only once.
  *
- * DUCK: an envelope follower on the internal signal (1 ms attack, 200 ms
- *   release) turns the external part down while the sound generator plays:
- *   gain = 1 - DUCK * min(1, env / 0.25). DUCK 100 % silences it while the
- *   internal sound peaks at -12 dBFS or above. DUCK 0 % = no ducking.
- *
  * HPF 20 Hz and LPF 20000 Hz are OFF (exactly bypassed); in between each is a
  * 12 dB/oct Butterworth TPT state-variable filter. PAN is a balance control
- * on the stereo input. WIDTH is mid/side on the summed external signal
- * (0 % mono, 100 % unchanged, 200 % double side).
+ * on the stereo input.
  *
  * Threads/realtime: process_block, set_param and get_param run on the SPI
  * callback. No allocation after init (static instance pool), no locks, no I/O
@@ -82,22 +76,17 @@ _Static_assert(offsetof(shadow_control_t, line_in_connected) == 59, "shadow_cont
 #define CTRL_MAP_BYTES 64
 
 #define LIM_POOL 64              /* 4 slots x 8 FX + Master FX + sends, with room */
-#define SMOOTH_MS 20.0f          /* gain / pan / width / mix glide */
+#define SMOOTH_MS 20.0f          /* gain / pan / mix glide */
 #define SOURCE_XFADE_MS 15.0f    /* SOURCE switch crossfade */
-#define DUCK_ATTACK_MS 1.0f
-#define DUCK_RELEASE_MS 200.0f
-#define DUCK_FULL 0.25f          /* -12 dBFS internal peak = full duck */
-#define NOSIG_SECONDS 2.0f
 #define HPF_OFF_HZ 20.0f
 #define LPF_OFF_HZ 20000.0f
 
 enum { SRC_ANALOG, SRC_USB };
-enum { ST_OK, ST_MUTED, ST_FBGUARD, ST_NOSIG };
 
 /* ---- the user parameters (order = state order) ------------------------- */
 enum {
-    P_MIX, P_AN_LEVEL, P_USB_LEVEL, P_SOURCE, P_AN_GAIN, P_USB_GAIN, P_DUCK, P_MUTE,
-    P_AN_HPF, P_USB_HPF, P_AN_LPF, P_USB_LPF, P_AN_PAN, P_USB_PAN, P_WIDTH,
+    P_MIX, P_AN_LEVEL, P_USB_LEVEL, P_SOURCE, P_AN_GAIN, P_USB_GAIN, P_MUTE,
+    P_AN_HPF, P_USB_HPF, P_AN_LPF, P_USB_LPF, P_AN_PAN, P_USB_PAN,
     P_COUNT
 };
 
@@ -119,7 +108,6 @@ static const pdef_t PDEF[P_COUNT] = {
     [P_SOURCE] = {"source", 0, 1, SRC_ANALOG, 1, OPT_SOURCE},
     [P_AN_GAIN] = {"an_gain", -24, 24, 0, 0, NULL},
     [P_USB_GAIN] = {"usb_gain", -24, 24, 0, 0, NULL},
-    [P_DUCK] = {"duck", 0, 1, 0, 0, NULL},
     [P_MUTE] = {"mute", 0, 1, 0, 1, OPT_MUTE},
     [P_AN_HPF] = {"an_hpf", 20, 1000, 20, 1, NULL},
     [P_USB_HPF] = {"usb_hpf", 20, 1000, 20, 1, NULL},
@@ -127,7 +115,6 @@ static const pdef_t PDEF[P_COUNT] = {
     [P_USB_LPF] = {"usb_lpf", 1000, 20000, 20000, 1, NULL},
     [P_AN_PAN] = {"an_pan", -100, 100, 0, 1, NULL},
     [P_USB_PAN] = {"usb_pan", -100, 100, 0, 1, NULL},
-    [P_WIDTH] = {"width", 0, 200, 100, 1, NULL},
 };
 
 /* One input channel strip (ANALOG or USB). Both run every block, so the
@@ -140,16 +127,10 @@ typedef struct {
 
 typedef struct {
     _Atomic float p[P_COUNT];
-    /* ---- written by process, read by get_param ---- */
-    _Atomic float peak_hold;   /* input peak since the last read, linear */
-    _Atomic int status;
     /* ---- process-only state ---- */
     strip_t strip[2];
     float w_s;                 /* SOURCE weight, 0 = ANALOG .. 1 = USB */
     float ext_s;               /* MIX * mute * guard */
-    float width_s;
-    float duck_env;
-    float quiet_s;             /* seconds the input has been below NOSIG_DB */
     int pooled;
 } lim_t;
 
@@ -276,11 +257,11 @@ static strip_target_t strip_target(lim_t *in, int k)
 }
 
 /* MIX, unless muted or guarded (or there is no input to read). */
-static float ext_target(lim_t *in, int *muted, int *guard)
+static float ext_target(lim_t *in)
 {
-    *muted = rd(&in->p[P_MUTE]) > 0.5f;
-    *guard = (int)rd(&in->p[P_SOURCE]) == SRC_ANALOG && mic_feedback_risk();
-    return (*muted || *guard || !g_mailbox) ? 0.0f : rd(&in->p[P_MIX]);
+    const int muted = rd(&in->p[P_MUTE]) > 0.5f;
+    const int guard = (int)rd(&in->p[P_SOURCE]) == SRC_ANALOG && mic_feedback_risk();
+    return (muted || guard || !g_mailbox) ? 0.0f : rd(&in->p[P_MIX]);
 }
 
 /* Jump the smoothed values to their targets (create / preset restore: a
@@ -296,9 +277,7 @@ static void snap_smoothed(lim_t *in)
         in->strip[k].lp_hz_s = t.lp;
     }
     in->w_s = rd(&in->p[P_SOURCE]);
-    int muted, guard;
-    in->ext_s = ext_target(in, &muted, &guard);
-    in->width_s = rd(&in->p[P_WIDTH]) * 0.01f;
+    in->ext_s = ext_target(in);
 }
 
 /* ---- instance lifecycle ---------------------------------------------------- */
@@ -370,13 +349,6 @@ static int get_param(void *ptr, const char *key, char *buf, int size)
     int n;
     const int idx = param_index(key);
     if (idx >= 0) n = fmt_param(buf, size, idx, rd(&in->p[idx]));
-    else if (!strcmp(key, "in_level")) {
-        /* Peak-hold between reads, so a 4 Hz poll still sees every peak.
-         * 20*log10 via logf: log10f binds a glibc newer than Move's. */
-        const float pk = atomic_exchange_explicit(&in->peak_hold, 0.0f, memory_order_relaxed);
-        const float db = pk > 0.001f ? 8.6858896f * logf(pk) : -60.0f;
-        n = snprintf(buf, size, "%.1f", (double)clampf(db, -60.0f, 0.0f));
-    } else if (!strcmp(key, "status")) n = snprintf(buf, size, "%d", atomic_load_explicit(&in->status, memory_order_relaxed));
     else if (!strcmp(key, "name")) return copy_out(buf, size, "Line In Mixer");
     else if (!strcmp(key, "chain_params")) return copy_out(buf, size, lim_chain_params);
     else if (!strcmp(key, "ui_hierarchy")) return copy_out(buf, size, lim_ui_hierarchy);
@@ -446,10 +418,7 @@ static void process(void *ptr, int16_t *io, int frames)
     if (frames > MOVE_FRAMES_PER_BLOCK) frames = MOVE_FRAMES_PER_BLOCK; /* the mailbox holds one block */
 
     const int source = (int)rd(&in->p[P_SOURCE]);
-    int muted, guard;
-    const float ext_t = src ? ext_target(in, &muted, &guard) : 0.0f;
-    if (!src) muted = guard = 0;
-    const float duck = rd(&in->p[P_DUCK]);
+    const float ext_t = src ? ext_target(in) : 0.0f;
     const float a = coef_ms(SMOOTH_MS, frames);
     const float inv = 1.0f / (float)frames;
 
@@ -476,26 +445,14 @@ static void process(void *ptr, int16_t *io, int frames)
     const float e0 = in->ext_s;
     in->ext_s = glide(in->ext_s, ext_t, a, GAIN_EPS);
     const float ed = (in->ext_s - e0) * inv;
-    const float wi0 = in->width_s;
-    in->width_s = glide(in->width_s, rd(&in->p[P_WIDTH]) * 0.01f, a, GAIN_EPS);
-    const float wid = (in->width_s - wi0) * inv;
-    const float duck_att = 1.0f - expf(-1.0f / (DUCK_ATTACK_MS * 0.001f * g_sr));
-    const float duck_rel = 1.0f - expf(-1.0f / (DUCK_RELEASE_MS * 0.001f * g_sr));
 
     const int active = e0 > 0.0f || in->ext_s > 0.0f;
-    float peak = 0.0f;
     for (int i = 0; i < frames; ++i) {
         const float il = io[2 * i] * (1.0f / 32768.0f), ir = io[2 * i + 1] * (1.0f / 32768.0f);
-        /* Duck envelope follows the internal signal even while ext is off,
-         * so turning MIX up mid-phrase does not start un-ducked. */
-        const float lvl = fmaxf(fabsf(il), fabsf(ir));
-        in->duck_env += (lvl > in->duck_env ? duck_att : duck_rel) * (lvl - in->duck_env);
-
         float xl = 0.0f, xr = 0.0f;
         if (src) {
             xl = src[2 * i] * (1.0f / 32768.0f);
             xr = src[2 * i + 1] * (1.0f / 32768.0f);
-            peak = fmaxf(peak, fmaxf(fabsf(xl), fabsf(xr)));
         }
         float el = 0.0f, er = 0.0f;
         for (int k = 0; k < 2; ++k) {
@@ -514,11 +471,8 @@ static void process(void *ptr, int16_t *io, int frames)
             er += yr * g * (pr0[k] + prd[k] * (float)i) * wk;
         }
         if (!active) continue; /* internal untouched, bit for bit */
-        const float width = wi0 + wid * (float)i;
-        const float mid = 0.5f * (el + er), side = 0.5f * (el - er) * width;
-        const float dg = 1.0f - duck * fminf(1.0f, in->duck_env * (1.0f / DUCK_FULL));
-        const float e = (e0 + ed * (float)i) * dg;
-        const float ol = il + (mid + side) * e, orr = ir + (mid - side) * e;
+        const float e = e0 + ed * (float)i;
+        const float ol = il + el * e, orr = ir + er * e;
         io[2 * i] = (int16_t)lrintf(clampf(ol * 32768.0f, -32768.0f, 32767.0f));
         io[2 * i + 1] = (int16_t)lrintf(clampf(orr * 32768.0f, -32768.0f, 32767.0f));
     }
@@ -529,50 +483,7 @@ static void process(void *ptr, int16_t *io, int frames)
             s->lp_ic1[c] = flush(s->lp_ic1[c]); s->lp_ic2[c] = flush(s->lp_ic2[c]);
         }
     }
-    in->duck_env = flush(in->duck_env);
 
-    /* ---- meters / status ---- */
-    if (peak > rd(&in->peak_hold)) wr(&in->peak_hold, peak);
-    const float nosig_lin = 0.00031623f; /* -70 dBFS */
-    in->quiet_s = peak < nosig_lin ? fminf(in->quiet_s + (float)frames / g_sr, 60.0f) : 0.0f;
-    int st = ST_OK;
-    if (guard) st = ST_FBGUARD;
-    else if (muted) st = ST_MUTED;
-    else if (!src || in->quiet_s >= NOSIG_SECONDS) st = ST_NOSIG;
-    atomic_store_explicit(&in->status, st, memory_order_relaxed);
-}
-
-/* ---- MIDI CC ------------------------------------------------------------------
- * Fixed, absolute CCs on the slot's own channel, in knob order:
- *   CC 20-27  MIX page   (MIX, AN LVL, USB LVL, SOURCE, AN GN, USB GN, DUCK, MUTE)
- *   CC 28-34  TONE page  knobs 2-8 (AN HPF, USB HPF, AN LPF, USB LPF, AN PAN,
- *                         USB PAN, WIDTH)  - knob 1 there is MIX = CC 20
- * 0..127 spans the parameter's range; enums split it evenly (SOURCE: 0-63
- * ANALOG, 64-127 USB-C; MUTE: 0-63 off, 64-127 on). CC 20-34 are not used
- * by Move's own controls. Only this slot's MIDI counts: FX_BROADCAST (every
- * other track's notes) and HOST (chain-generated) are ignored. */
-#define CC_FIRST 20
-
-static void on_midi(void *ptr, const uint8_t *msg, int len, int source)
-{
-    lim_t *in = ptr;
-    if (!in || !msg || len < 3) return;
-    if (source == MOVE_MIDI_SOURCE_FX_BROADCAST || source == MOVE_MIDI_SOURCE_HOST) return;
-    if ((msg[0] & 0xF0) != 0xB0) return;
-    const int idx = (int)msg[1] - CC_FIRST;
-    if (idx < 0 || idx >= P_COUNT) return;
-    const float t = (float)(msg[2] & 0x7F) / 127.0f;
-    const pdef_t *d = &PDEF[idx];
-    float v;
-    if (d->options) {
-        int n = 0;
-        while (d->options[n]) ++n;
-        v = floorf(t * (float)n * 0.99999f);
-    } else {
-        v = d->min + t * (d->max - d->min);
-        if (d->integer) v = floorf(v + 0.5f);
-    }
-    wr(&in->p[idx], clampf(v, d->min, d->max));
 }
 
 static audio_fx_api_v2_t g_api = {
@@ -582,7 +493,7 @@ static audio_fx_api_v2_t g_api = {
     .process_block = process,
     .set_param = set_param,
     .get_param = get_param,
-    .on_midi = on_midi,
+    .on_midi = NULL,
 };
 
 EXPORT audio_fx_api_v2_t *move_audio_fx_init_v2(const host_api_v1_t *host)
@@ -598,9 +509,3 @@ EXPORT audio_fx_api_v2_t *move_audio_fx_init_v2(const host_api_v1_t *host)
     return &g_api;
 }
 
-/* The entry point the chain host actually calls for an audio FX's MIDI
- * (chain_fx_load.c dlsyms it; the struct field alone is not enough). */
-EXPORT void move_audio_fx_on_midi(void *instance, const uint8_t *msg, int len, int source)
-{
-    on_midi(instance, msg, len, source);
-}

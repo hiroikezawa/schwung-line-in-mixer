@@ -17,16 +17,14 @@ root = pathlib.Path(__file__).resolve().parent.parent
 caps = json.loads((root / "module.json").read_text())["capabilities"]
 src = (root / "src" / "line_in_mixer.c").read_text()
 
-READ_ONLY = ["status", "in_level"]
 params = {p["key"]: p for p in caps["chain_params"]}
-for k in READ_ONLY:
-    assert params[k].get("access") == "read", f"{k} must be a read-only readout"
+assert not any(p.get("access") == "read" for p in caps["chain_params"]), "no readouts"
 
 enum_names = {n: re.findall(r'"([^"]+)"', body)
               for n, body in re.findall(r"static const char \*const (OPT_\w+)\[\] = \{([^}]*)\}", src)}
 consts = {"SRC_ANALOG": 0}
 rows = re.findall(r'\[P_\w+\] = \{"(\w+)", (-?[\d.]+), (-?[\d.]+), (-?\w+), ([01]), (\w+)\}', src)
-assert len(rows) == 15, f"PDEF rows found: {len(rows)}"
+assert len(rows) == 13, f"PDEF rows found: {len(rows)}"
 writable = [p["key"] for p in caps["chain_params"] if p.get("access") != "read"]
 assert [r[0] for r in rows] == writable, "PDEF order must equal module.json's writable chain_params"
 for key, lo, hi, dflt, integer, opts in rows:
@@ -41,8 +39,8 @@ for key, lo, hi, dflt, integer, opts in rows:
     assert float(dflt) == p["default"], f"{key}: default {dflt} vs {p['default']}"
 
 levels = caps["ui_hierarchy"]["levels"]
-assert levels["root"]["knobs"] == ["mix", "an_level", "usb_level", "source", "an_gain", "usb_gain", "duck", "mute"]
-assert levels["tone"]["knobs"] == ["mix", "an_hpf", "usb_hpf", "an_lpf", "usb_lpf", "an_pan", "usb_pan", "width"]
+assert levels["root"]["knobs"] == ["mix", "an_level", "usb_level", "source", "an_gain", "usb_gain", "mute"]
+assert levels["tone"]["knobs"] == ["an_hpf", "usb_hpf", "an_lpf", "usb_lpf", "an_pan", "usb_pan"]
 
 
 def literal(value):
