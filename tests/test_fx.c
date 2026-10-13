@@ -368,6 +368,17 @@ int main(int argc, char **argv)
         return failures ? 1 : 0;
     }
 
+    /* On a Move the module reads the REAL jack state: speaker on and no
+     * line-in cable engages its feedback guard, and every ANALOG test fails
+     * by design. Say so instead of leaving 21 bare FAILs. */
+    {
+        FILE *f = fopen("/dev/shm/schwung-control", "rb");
+        uint8_t b[2];
+        if (f && fseek(f, 58, SEEK_SET) == 0 && fread(b, 1, 2, f) == 2 && b[0] && !b[1])
+            printf("NOTE: the real feedback guard is ON (speaker playing, no line-in cable):\n"
+                   "      ANALOG tests below fail by design. Plug in headphones or a line-in cable.\n");
+        if (f) fclose(f);
+    }
     void *h = g_so = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
     if (!h) { fprintf(stderr, "%s\n", dlerror()); return 1; }
     audio_fx_init_v2_fn init = (audio_fx_init_v2_fn)dlsym(h, AUDIO_FX_INIT_V2_SYMBOL);
