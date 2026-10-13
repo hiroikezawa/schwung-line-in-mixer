@@ -1,0 +1,67 @@
+{
+  "id": "line-in-mixer",
+  "name": "Line In Mixer",
+  "abbrev": "LIM",
+  "version": "0.1.0",
+  "description": "Adds Move's audio input (analog line in or USB-C audio) on top of this chain's sound generator",
+  "author": "Hiro Ikezawa",
+  "license": "MIT",
+  "dsp": "line-in-mixer.so",
+  "api_version": 2,
+  "component_type": "audio_fx",
+  "capabilities": {
+    "chainable": true,
+    "component_type": "audio_fx",
+    "audio_in": true,
+    "audio_out": true,
+    "midi_in": false,
+    "midi_out": false,
+    "requires_continuous_processing": true,
+    "chain_params": [
+      {"key": "mix", "name": "Mix", "short_name": "MIX", "type": "float", "min": 0, "max": 1, "step": 0.01, "default": 1, "unit": "%", "display_format": "%.0f"},
+      {"key": "an_level", "name": "Analog Level", "short_name": "AN LVL", "type": "float", "min": 0, "max": 1, "step": 0.01, "default": 1, "unit": "%", "display_format": "%.0f"},
+      {"key": "usb_level", "name": "USB Level", "short_name": "USBLVL", "type": "float", "min": 0, "max": 1, "step": 0.01, "default": 1, "unit": "%", "display_format": "%.0f"},
+      {"key": "source", "name": "Source", "short_name": "SOURCE", "type": "enum", "options": ["ANALOG", "USB-C"], "default": 0},
+      {"key": "an_gain", "name": "Analog Gain", "short_name": "AN GN", "type": "float", "min": -24, "max": 24, "step": 0.5, "default": 0, "unit": "dB", "display_format": "%.1f"},
+      {"key": "usb_gain", "name": "USB Gain", "short_name": "USB GN", "type": "float", "min": -24, "max": 24, "step": 0.5, "default": 0, "unit": "dB", "display_format": "%.1f"},
+      {"key": "duck", "name": "Duck", "short_name": "DUCK", "type": "float", "min": 0, "max": 1, "step": 0.01, "default": 0, "unit": "%", "display_format": "%.0f"},
+      {"key": "mute", "name": "Mute", "short_name": "MUTE", "type": "enum", "options": ["off", "on"], "default": 0},
+      {"key": "an_hpf", "name": "Analog HPF", "short_name": "AN HPF", "type": "int", "min": 20, "max": 1000, "step": 10, "default": 20, "unit": "Hz"},
+      {"key": "usb_hpf", "name": "USB HPF", "short_name": "USBHPF", "type": "int", "min": 20, "max": 1000, "step": 10, "default": 20, "unit": "Hz"},
+      {"key": "an_lpf", "name": "Analog LPF", "short_name": "AN LPF", "type": "int", "min": 1000, "max": 20000, "step": 100, "default": 20000, "unit": "Hz"},
+      {"key": "usb_lpf", "name": "USB LPF", "short_name": "USBLPF", "type": "int", "min": 1000, "max": 20000, "step": 100, "default": 20000, "unit": "Hz"},
+      {"key": "an_pan", "name": "Analog Pan", "short_name": "AN PAN", "type": "int", "min": -100, "max": 100, "step": 1, "default": 0},
+      {"key": "usb_pan", "name": "USB Pan", "short_name": "USBPAN", "type": "int", "min": -100, "max": 100, "step": 1, "default": 0},
+      {"key": "width", "name": "Stereo Width", "short_name": "WIDTH", "type": "int", "min": 0, "max": 200, "step": 1, "default": 100, "unit": "%"},
+      {"key": "status", "name": "Status", "short_name": "STATE", "type": "enum", "options": ["OK", "MUTED", "FB GUARD", "NO SIG"], "default": 0, "access": "read", "live": true},
+      {"key": "in_level", "name": "Input Level", "short_name": "INPUT", "type": "float", "min": -60, "max": 0, "step": 0.1, "default": -60, "unit": "dB", "display_format": "%.1f", "access": "read", "live": true}
+    ],
+    "ui_hierarchy": {
+      "levels": {
+        "root": {
+          "name": "MIX",
+          "knobs": ["mix", "an_level", "usb_level", "source", "an_gain", "usb_gain", "duck", "mute"],
+          "params": [
+            {"key": "mix"}, {"key": "an_level"}, {"key": "usb_level"}, {"key": "source"},
+            {"key": "an_gain"}, {"key": "usb_gain"}, {"key": "duck"}, {"key": "mute"},
+            {"level": "tone", "label": "Tone"},
+            {"level": "info", "label": "Info"}
+          ]
+        },
+        "tone": {
+          "label": "TONE",
+          "knobs": ["mix", "an_hpf", "usb_hpf", "an_lpf", "usb_lpf", "an_pan", "usb_pan", "width"],
+          "params": [
+            {"key": "mix"}, {"key": "an_hpf"}, {"key": "usb_hpf"}, {"key": "an_lpf", "name": "Analog LPF", "short_name": "AN LPF", "type": "int", "min": 1000, "max": 20000, "step": 100, "default": 20000, "unit": "Hz"},
+            {"key": "usb_lpf"}, {"key": "an_pan"}, {"key": "usb_pan"}, {"key": "width"}
+          ]
+        },
+        "info": {
+          "label": "INFO",
+          "knobs": ["status", "in_level"],
+          "params": [{"key": "status"}, {"key": "in_level"}]
+        }
+      }
+    }
+  }
+}
