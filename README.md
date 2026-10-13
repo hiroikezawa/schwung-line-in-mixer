@@ -1,168 +1,149 @@
-# Line In Mixer（Schwung Audio FX）
+# Line In Mixer
 
-Ableton Move の音声入力（3.5 mm LINE IN、または USB-C 経由のデジタルオーディオ）を、
-Schwung スロットの**内部音源の上に加算ミックス**する Audio FX です。
+Ableton Move 上の [Schwung](https://github.com/charlesvestal/schwung) 用 Audio FX です。
+Move の音声入力（3.5 mm の LINE IN、または USB-C 経由で iPad や PC から送られる音）を、
+Schwung スロットのサウンドジェネレーターの音に**足し合わせて**鳴らします。
 
-- スロットの Sound Generator はそのまま残ります。外部入力のために Sound Generator を
-  置き換えたり占有したりしません。
-- MIX・SOURCE・MUTE を動かしても、内部音源の音量・音質は変わりません。
-  外部入力の分が 0 のときは、出力は入力（内部音源）とビット単位で同一です。
-- 後段の Audio FX（Reverb / Delay など）と Master FX は、内部音源と外部入力の
-  両方にかかります。
+- スロットのサウンドジェネレーターはそのまま鳴り続けます。外部入力のために
+  サウンドジェネレーターを置き換えたり、スロットを1つ使ったりする必要はありません。
+- つまみを動かして変わるのは外部入力の音だけです。サウンドジェネレーターの音量や音質は
+  変わりません（外部入力を 0 にすると、出力は元の音とビット単位で同じです）。
+- 後ろに入れた Audio FX（リバーブやディレイなど）と Master FX は、サウンドジェネレーターと
+  外部入力の両方にかかります。
 
 ```text
-Schwung Track 4
-  Sound Generator ─▶ FX 1: Line In Mixer ─▶ FX 2: Reverb / Delay … ─▶ Master FX ─▶ OUT
-                          ▲
-                          └─ Move の音声入力（ANALOG または USB-C、どちらか一方）
+Schwung のスロット（例：Track 4）
+  サウンドジェネレーター ─▶ FX 1: Line In Mixer ─▶ FX 2: リバーブ / ディレイ … ─▶ Master FX ─▶ 出力
+                                ▲
+                                └─ Move の音声入力（LINE IN または USB-C のどちらか一方）
 ```
 
-## 入力ソースについて（重要な制約）
+## インストール
 
-調査の結果、**物理 LINE IN と USB-C Audio を同時に取り込むこと（BOTH）はできません**。
-そのため BOTH モードは実装せず、SOURCE は ANALOG / USB-C の 2 択にしています。
+### リリースから入れる（おすすめ）
 
-理由（Schwung 1.7.3 のソースと Move の SPI プロトコルから確認）:
+1. [Releases](../../releases) から最新の `line-in-mixer-module.tar.gz` をダウンロードします。
+2. Schwung Manager（`http://<MoveのIP>:7700`）の Modules →「Install custom」で、
+   そのファイルをアップロードします。
+3. **Move の電源を一度入れ直します。**
 
-1. Move の音声入力は、XMOS オーディオチップから SPI 経由で Linux 側に届く
-   **1 本のステレオストリーム**だけです（128 フレーム × 2ch の int16、44.1 kHz。
-   SPI メールボックスの `audio_in_offset`）。
-2. その 1 本に何を流すかは XMOS が決めます。LINE IN（ケーブル未接続時は内蔵マイク）か、
-   USB-C から届くオーディオかを、XMOS のルーティング設定（SysEx `37 12` の bit0）で
-   切り替えます。この設定は **Move 本体のサンプリング入力設定**が持っています
-   （Schwung の `docs/SPI_PROTOCOL.md`）。
-3. USB-C のオーディオは XMOS が扱っています（USB-C 出力の Mic / Main Out 切替も
-   XMOS の SysEx）。Linux の音声 API（ALSA）から USB-C 入力を別系統として取り出せる
-   デバイスがあるかは、**まだ実機で確認していません**（`/proc/asound/cards` の確認待ち）。
-   仮にあっても、Move 本体（MoveOriginal）が使用中のデバイスを Audio FX から
-   共有できるかは別問題で、現時点では SPI ストリームだけを使っています。
-4. Schwung 内蔵の `linein` Sound Generator も、`timncox/schwung-smack` の `smack-in`
-   も、同じ 1 本のストリームを読んでいます。smack-in のソースには
-   「入力は Move で最後に選んだもの（mic/line/USB-C）に従う」と書かれています。
+### ソースからビルドして入れる
 
-このため、このモジュールは**どちらの入力が来ているかを自分で知ることも、
-切り替えることもできません**。
+aarch64 用のクロスコンパイラ（`gcc-aarch64-linux-gnu`）、Python 3、そして Move で動いている
+バージョンの Schwung のソースが必要です（ヘッダーだけを使います）。
 
-- **入力の切替は Move 本体で行います**（サンプリングの入力ソース設定で
-  LINE IN か USB-C を選ぶ）。
-- このモジュールの **SOURCE は「どちらのチャンネルストリップ
-  （GAIN・LEVEL・HPF・LPF・PAN）を使うか」**を選びます。Move 側の設定に
-  合わせてください。SOURCE を切り替えると 15 ms でクロスフェードします。
-- XMOS の SysEx を Schwung から送って自動で切り替える方法は、意図的に使っていません。
-  Schwung 本体が同じ系統の SysEx の再送を 1.3.2 で廃止しています（USB-C 出力の
-  設定と実際の音がずれ、内蔵スピーカーがミュートされる不具合が実機で報告されたため）。
+```bash
+git -C ../schwung archive v1.7.3 src | tar -x -C /path/to/schwung-1.7.3
+export SCHWUNG_ROOT=/path/to/schwung-1.7.3
 
-### USB-C まわり
+scripts/build.sh arm64                             # dist/line-in-mixer-module.tar.gz を作成
+python3 scripts/install.py http://<MoveのIP>:7700  # Schwung Manager 経由でアップロード
+```
 
-- USB-C 入力は、Move を USB オーディオデバイスとして認識するホスト
-  （iPad Pro、iPhone、PC など）から送られる音声を想定しています。Move の USB-C に
-  一般的なオーディオインターフェースをつなぐ使い方は対象外です。
-- サンプルレート変換・クロックドリフト・バッファ管理は XMOS と SPI 転送が行います。
-  このモジュールに届く時点で、DSP と同じ 44.1 kHz・同じクロックの 128 フレーム
-  ブロックになっているため、モジュール側にリサンプラーやリングバッファはありません
-  （アンダーラン・オーバーランが起きる場所がありません）。
-- USB-C を抜くと入力はゼロになるだけで、内部音源は鳴り続けます。モジュールは
-  USB の接続状態を待ったり読んだりしないので、ホットプラグでクラッシュする経路も
-  ありません。再接続時は、XMOS が音を流し始めればそのまま聞こえます。
-- USB-C MIDI と USB-C Audio の併用、USB-C 給電との併用はモジュールでは扱いません
-  （XMOS と Move 本体の機能です）。**実機では未確認**です。
+> **更新したら必ず Move の電源を入れ直してください。** 一度読み込まれた DSP は、
+> スロットを読み直しても入れ替わりません。
 
-## フィードバックガード
+## 使い方
 
-SOURCE が ANALOG で、内蔵スピーカーから音が出ていて、LINE IN にケーブルが
-刺さっていないとき、入力は内蔵マイクがスピーカーの音を拾っている状態です。
-Schwung 本体のフィードバック保護は Sound Generator にしか効かないため、
-このモジュールはこの状態で外部入力を自動でミュートします（画面表示はありません）。
-ケーブルを刺すかヘッドホンを使うと解除されます。
-USB-C ストリップ（SOURCE = USB-C）はマイクではないので対象外です。
+1. Schwung のスロットにサウンドジェネレーターを入れます。
+2. 同じスロットの **FX 1** に Line In Mixer を入れます。リバーブなどは FX 2 以降に入れます。
+3. **Move 本体の設定**で、サンプリングの入力ソースを LINE IN か USB-C に切り替えます。
+4. Line In Mixer の **SOURCE** を、Move 側と同じもの（ANALOG または USB-C）にします。
+5. MIX と LEVEL / GAIN で音量を決めます。
 
-ジャックの状態は Schwung の共有メモリ `/schwung-control`
-（`shadow_control_t.speaker_active` / `line_in_connected`）を読み取り専用で参照しています。
+USB-C から入れる場合は、iPad・iPhone・PC など、Move を USB オーディオ機器として認識する
+機器から音を送ります。Move の USB-C に一般的なオーディオインターフェースをつなぐ使い方には
+対応していません。
 
-## パラメーター
+## つまみ
 
-### Page 1：MIX（7 ノブ）
+### 1 ページ目：MIX（画面の見出しは「Main」）
 
-| ノブ | 名前 | 内容 | 範囲（初期値） |
+| ノブ | 表示 | 内容 | 範囲（初期値） |
 |---|---|---|---|
-| 1 | MIX | 外部入力全体の加算量。内部音源は変わらない | 0–100 %（100 %） |
-| 2 | AN LVL | ANALOG ストリップのレベル | 0–100 %（100 %） |
-| 3 | USB LVL | USB ストリップのレベル | 0–100 %（100 %） |
-| 4 | SOURCE | 使うストリップ：ANALOG / USB-C | ANALOG |
-| 5 | AN GN | ANALOG ストリップのゲイン | −24〜+24 dB（0 dB） |
-| 6 | USB GN | USB ストリップのゲイン | −24〜+24 dB（0 dB） |
-| 7 | MUTE | 外部入力をミュート（内部音源はそのまま） | off / on（off） |
+| 1 | MIX | 外部入力をどれだけ足すか | 0–100 %（100 %） |
+| 2 | AN LVL | ANALOG の音量 | 0–100 %（100 %） |
+| 3 | USB LVL | USB-C の音量 | 0–100 %（100 %） |
+| 4 | SOURCE | どちらの設定を使うか：ANALOG / USB-C | ANALOG |
+| 5 | AN GN | ANALOG のゲイン | −24〜+24 dB（0 dB） |
+| 6 | USB GN | USB-C のゲイン | −24〜+24 dB（0 dB） |
+| 7 | MUTE | 外部入力だけを消す | off / on（off） |
 
-### Page 2：TONE（6 ノブ）
+### 2 ページ目：TONE
 
-| ノブ | 名前 | 内容 | 範囲（初期値） |
+| ノブ | 表示 | 内容 | 範囲（初期値） |
 |---|---|---|---|
-| 1 | AN HPF | ANALOG ハイパス（12 dB/oct）。20 Hz = オフ | 20–1000 Hz（20） |
-| 2 | USB HPF | USB ハイパス。20 Hz = オフ | 20–1000 Hz（20） |
-| 3 | AN LPF | ANALOG ローパス（12 dB/oct）。20 kHz = オフ | 1–20 kHz（20 k） |
-| 4 | USB LPF | USB ローパス。20 kHz = オフ | 1–20 kHz（20 k） |
-| 5 | AN PAN | ANALOG のバランス（ステレオ入力の左右バランス） | −100〜+100（0） |
-| 6 | USB PAN | USB のバランス | −100〜+100（0） |
+| 1 | AN HPF | ANALOG のローカット（12 dB/oct）。20 Hz で効果なし | 20–1000 Hz（20 Hz） |
+| 2 | USB HPF | USB-C のローカット。20 Hz で効果なし | 20–1000 Hz（20 Hz） |
+| 3 | AN LPF | ANALOG のハイカット（12 dB/oct）。20 kHz で効果なし | 1–20 kHz（20 kHz） |
+| 4 | USB LPF | USB-C のハイカット。20 kHz で効果なし | 1–20 kHz（20 kHz） |
+| 5 | AN PAN | ANALOG の左右バランス | −100〜+100（0） |
+| 6 | USB PAN | USB-C の左右バランス | −100〜+100（0） |
 
-Schwung のページ構成の都合で、Page 1 の見出しは「Main」と表示されます。
+つまみの変化は 20 ms かけてなめらかに反映されるので、回してもクリックノイズは出ません。
+SOURCE を切り替えたときは 15 ms でクロスフェードします。
+すべての設定は Schwung のスロット自動保存と User Presets で保存・復元されます。
 
-### 計算式
+## LINE IN と USB-C を同時には使えません
+
+Move の音声入力は、Move の中の XMOS オーディオチップから **1 本のステレオ信号**として
+Schwung に届きます。LINE IN（ケーブルがないときは内蔵マイク）と USB-C のどちらを流すかは
+XMOS が切り替えていて、その設定は Move 本体のサンプリング入力ソースが持っています。
+
+そのため、
+
+- LINE IN と USB-C を**同時に鳴らすことはできません**。
+- Line In Mixer は、今どちらの入力が来ているかを知ることも、切り替えることもできません。
+  **入力は Move 本体で切り替えます。** SOURCE は「ANALOG 用と USB-C 用、どちらの
+  つまみ（ゲイン・音量・フィルター・パン）を使うか」を選ぶだけです。
+
+実機でも確かめています。Move の Linux 側には音声デバイス（ALSA）が一切なく、USB の機能は
+USB イーサネットだけで、USB-C のオーディオと MIDI はすべて XMOS が受け持っています。
+Schwung 内蔵の Line In や、ほかの入力系モジュールも、同じ 1 本の信号を読んでいます。
+
+USB-C の信号は、Schwung に届いた時点で Move の処理と同じ 44.1 kHz・同じクロックに
+そろっています。そのためこのモジュールにはサンプルレート変換やバッファがなく、
+音切れやずれが起きる箇所がありません。USB-C を抜くと外部入力が無音になるだけで、
+サウンドジェネレーターは鳴り続けます。
+
+## ハウリング防止
+
+SOURCE が ANALOG で、Move の内蔵スピーカーから音が出ていて、LINE IN にケーブルが
+刺さっていないとき、入力は内蔵マイクがスピーカーの音を拾っている状態になり、
+ハウリングします。Line In Mixer はこのときだけ外部入力を自動で消します（画面表示はありません）。
+ケーブルを刺すか、ヘッドホンをつなぐと元に戻ります。USB-C はマイクではないので対象外です。
+
+## 注意
+
+- Schwung の Global Settings でネイティブ Resample ブリッジを使っていると、入力に
+  Schwung 自身の音が入り、それを足し合わせることになります。このモジュールを使うときは
+  オフにしてください。
+- スロットが無音のあいだも外部入力が途切れないよう、処理を止めない設定
+  （`requires_continuous_processing`）にしています。
+
+## 仕組み
 
 ```c
 ext   = (1 - w) * strip(ANALOG) + w * strip(USB)   // w = SOURCE（15 ms クロスフェード）
 strip = pan( level * gain * LPF( HPF(input) ) )
-outL  = internalL + extL * MIX * (MUTE ? 0 : 1) * (FB GUARD ? 0 : 1)
-outR  = internalR + extR * MIX * (MUTE ? 0 : 1) * (FB GUARD ? 0 : 1)
+outL  = internalL + extL * MIX * (MUTE ? 0 : 1) * (ハウリング防止 ? 0 : 1)
+outR  = internalR + extR * MIX * (MUTE ? 0 : 1) * (ハウリング防止 ? 0 : 1)
 ```
 
-合計は int16 の範囲でクリップします（リミッターはありません）。
-ゲイン・レベル・パン・MIX の変化は 20 ms でなめらかに変わります（クリックなし）。
+フィルターは 2 次の Butterworth（TPT ステート・バリアブル・フィルター）です。
+合計は 16 ビットの範囲でクリップします（リミッターはありません）。
 
-### プリセット
-
-全 13 パラメーターが `state` として保存・復元されます（Schwung のスロット自動保存、
-User Presets）。v0.1.0 で保存した DUCK と WIDTH の値は読み込み時に無視されます。
-
-## 使い方
-
-1. Schwung のスロット（例：Track 4）に Sound Generator を入れる。
-2. そのスロットの FX 1 に **Line In Mixer** を入れる。FX 2 以降に Reverb などを入れる。
-3. Move 本体のサンプリング入力ソースで、LINE IN か USB-C を選ぶ。
-4. Line In Mixer の SOURCE を Move の設定に合わせる。
-5. MIX と各 LEVEL / GAIN で量を調整する。
-
-注意:
-- Schwung の Global Settings でネイティブ Resample ブリッジを使っていると、
-  入力の領域に Schwung のミックスが書き込まれ、それを加算することになります
-  （フィードバックの恐れ）。このモジュールを使うときはオフにしてください。
-- スロットが無音でも入力が途切れないように `requires_continuous_processing`
-  を宣言しています。
-
-## ビルドとテスト
+## テスト
 
 ```bash
-# Move と同じ Schwung バージョンのソース（ヘッダーとページプランナー）を用意
-git -C ../schwung archive v1.7.3 src | tar -x -C /path/to/schwung-1.7.3
-export SCHWUNG_ROOT=/path/to/schwung-1.7.3
-
-scripts/test.sh          # 機能テスト、ASan/UBSan、フィードバックガード、UI 契約、ARM64 ビルド
-scripts/build.sh arm64   # dist/line-in-mixer-module.tar.gz
-scripts/install.py http://<Move の IP>:7700
+scripts/test.sh
 ```
 
-`tests/test_fx.c` は実際の Audio FX v2 ABI（dlopen）を通して、ダミーの SPI メールボックスに
-入力を書き込んでテストします。`tests/test_ui.mjs` は Schwung 本体のページプランナーと
-契約バリデーターでページ構成を確認します。
-
-## 検証状況
-
-| 項目 | 実装 | ビルド / PC テスト | 実機 |
-|---|---|---|---|
-| 物理 LINE IN（ANALOG） | 済 | 済 | v0.1.0 で動作報告あり。仕様のテスト項目ごとの確認は未実施 |
-| USB-C Audio | 済（Move 側で入力を USB-C にしたとき） | 済（ダミー入力） | 同上 |
-| BOTH（同時） | **実装しない**（1 本のストリームしかないため） | — | — |
+実際の Schwung Audio FX v2 インターフェース経由の機能テスト（ダミーの入力を使用）、
+AddressSanitizer / UBSan、ハウリング防止、Schwung 本体のページ構成チェック、
+ARM64 ビルドをまとめて実行します。
 
 ## ライセンス
 
-MIT（`LICENSE`）。Copyright (c) 2026 Hiro Ikezawa。サードパーティについては
-`THIRD_PARTY_LICENSES.md`。
+MIT（`LICENSE`）。Copyright (c) 2026 Hiro Ikezawa。
+サードパーティについては `THIRD_PARTY_LICENSES.md` を見てください。
