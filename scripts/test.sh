@@ -4,7 +4,7 @@
 #      (and again under AddressSanitizer + UBSan)
 #   2. Schwung's own page planner / contract validator     tests/test_ui.mjs
 #   3. ARM64 build + ABI check (glibc, both exports)
-#   4. feedback guard with a fake /schwung-control (desktop only)
+#   4. no-mic rule with a fake /schwung-control (desktop only)
 #
 # SCHWUNG_ROOT: a Schwung source tree matching the device's host version
 # (default ../schwung). `git archive v1.7.3 src` of the Schwung repo is enough.
@@ -25,7 +25,7 @@ echo "== v2 ABI"
 $T/test_fx build/native/line-in-mixer/line-in-mixer.so
 $T/test_fx build/native/line-in-mixer/line-in-mixer.so cpu
 
-echo "== feedback guard (fake /dev/shm/schwung-control)"
+echo "== no-mic rule (fake /dev/shm/schwung-control)"
 $T/test_fx build/native/line-in-mixer/line-in-mixer.so guard | tail -1
 
 echo "== sanitizers (ASan + UBSan)"

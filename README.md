@@ -106,12 +106,13 @@ USB-C の信号は、Schwung に届いた時点で Move の処理と同じ 44.1 
 音切れやずれが起きる箇所がありません。USB-C を抜くと外部入力が無音になるだけで、
 サウンドジェネレーターは鳴り続けます。
 
-## ハウリング防止
+## 内蔵マイクは使いません
 
-SOURCE が ANALOG で、Move の内蔵スピーカーから音が出ていて、LINE IN にケーブルが
-刺さっていないとき、入力は内蔵マイクがスピーカーの音を拾っている状態になり、
-ハウリングします。Line In Mixer はこのときだけ外部入力を自動で消します（画面表示はありません）。
-ケーブルを刺すか、ヘッドホンをつなぐと元に戻ります。USB-C はマイクではないので対象外です。
+LINE IN にケーブルが刺さっていないと、Move は代わりに内蔵マイクの音を流します。
+ANALOG は物理 LINE IN のための設定なので、SOURCE が ANALOG のときは、
+**LINE IN にケーブルが刺さっている間だけ**外部入力を通します。ケーブルがないときは、
+スピーカーでもヘッドホンでも外部入力を自動で消します（画面表示はありません）。
+これでスピーカー使用時のハウリングも起きません。USB-C はマイクではないので対象外です。
 
 ## 音が入ってこないとき
 
@@ -130,8 +131,8 @@ ANALOG にしても、Move の入力は切り替わりません。
 そのほかの確認点:
 
 - MUTE が off で、MIX と LEVEL が 0 になっていないか。
-- ANALOG で内蔵スピーカーを使っているのに LINE IN にケーブルが刺さっていないと、
-  ハウリング防止で外部入力が消えます（上の「ハウリング防止」を参照）。
+- ANALOG のときは、LINE IN にケーブルが刺さっていないと外部入力が消えます
+  （上の「内蔵マイクは使いません」を参照）。
 - モジュールを更新した直後は、Move の電源を入れ直したか。
 
 ## 注意
@@ -147,8 +148,9 @@ ANALOG にしても、Move の入力は切り替わりません。
 ```c
 ext   = (1 - w) * strip(ANALOG) + w * strip(USB)   // w = SOURCE（15 ms クロスフェード）
 strip = pan( level * gain * LPF( HPF(input) ) )
-outL  = internalL + extL * MIX * (MUTE ? 0 : 1) * (ハウリング防止 ? 0 : 1)
-outR  = internalR + extR * MIX * (MUTE ? 0 : 1) * (ハウリング防止 ? 0 : 1)
+outL  = internalL + extL * MIX * (MUTE ? 0 : 1) * (マイク ? 0 : 1)
+outR  = internalR + extR * MIX * (MUTE ? 0 : 1) * (マイク ? 0 : 1)
+// マイク = SOURCE が ANALOG で LINE IN にケーブルがない
 ```
 
 フィルターは 2 次の Butterworth（TPT ステート・バリアブル・フィルター）です。
@@ -161,7 +163,7 @@ scripts/test.sh
 ```
 
 実際の Schwung Audio FX v2 インターフェース経由の機能テスト（ダミーの入力を使用）、
-AddressSanitizer / UBSan、ハウリング防止、Schwung 本体のページ構成チェック、
+AddressSanitizer / UBSan、ケーブルなしでマイクを消す動作、Schwung 本体のページ構成チェック、
 ARM64 ビルドをまとめて実行します。
 
 ## ライセンス

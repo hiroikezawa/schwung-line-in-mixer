@@ -59,15 +59,15 @@
       ]
     },
     {
-      "title": "Feedback guard",
+      "title": "No microphone",
       "lines": [
-        "ANALOG + speaker +",
-        "no line-in cable =",
-        "Move's built-in mic",
-        "hears the speaker.",
-        "The input is muted",
-        "then. Plug in a",
-        "cable or headphones."
+        "ANALOG = line in",
+        "only. With no cable",
+        "in LINE IN, Move",
+        "sends its built-in",
+        "mic, so the input",
+        "is muted then.",
+        "USB-C: not muted."
       ]
     }
   ]

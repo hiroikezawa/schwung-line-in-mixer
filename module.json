@@ -2,7 +2,7 @@
   "id": "line-in-mixer",
   "name": "Line In Mixer",
   "abbrev": "LIM",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Adds Move's audio input (analog line in or USB-C audio) on top of this chain's sound generator",
   "author": "Hiro Ikezawa",
   "license": "MIT",

@@ -31,13 +31,13 @@
  *   timncox/schwung-smack's smack-in read; this module reads it as an audio
  *   FX so the slot's sound generator stays where it is.
  *
- * FEEDBACK GUARD
- *   With SOURCE = ANALOG, nothing in the line-in jack and the built-in speaker
- *   playing, the input is the built-in microphone listening to the speaker.
- *   Schwung's own guard only covers sound generators, so this module mutes its
- *   external part itself in exactly that state. The
- *   jack states are the shim's (shadow_control_t.speaker_active /
- *   line_in_connected, /schwung-control), mapped read-only once.
+ * NO MICROPHONE
+ *   ANALOG means the 3.5 mm line in. With nothing in the line-in jack the XMOS
+ *   delivers the built-in microphone instead, so with SOURCE = ANALOG the
+ *   external part is muted whenever no cable is detected - speaker or
+ *   headphones alike (a mic on the speaker also feeds back). The jack state is
+ *   the shim's (shadow_control_t.line_in_connected, /schwung-control), mapped
+ *   read-only once; without it (no shim) the input passes.
  *
  * HPF 20 Hz and LPF 20000 Hz are OFF (exactly bypassed); in between each is a
  * 12 dB/oct Butterworth TPT state-variable filter. PAN is a balance control
@@ -52,7 +52,7 @@
  */
 #define _POSIX_C_SOURCE 200809L /* O_CLOEXEC */
 #include "host/audio_fx_api_v2.h"
-#include "host/shadow_constants.h" /* shadow_control_t: speaker / line-in jack state */
+#include "host/shadow_constants.h" /* shadow_control_t: line-in jack state */
 #include "line_in_mixer_meta.h"    /* generated from module.json by scripts/metadata.py */
 
 #include <fcntl.h>
@@ -69,9 +69,8 @@
 
 #define EXPORT __attribute__((visibility("default")))
 
-/* The two bytes read from /schwung-control. Identical in Schwung 1.4 - 1.7.3;
+/* The byte read from /schwung-control. Identical in Schwung 1.4 - 1.7.3;
  * a header that moves them fails the build instead of reading the wrong byte. */
-_Static_assert(offsetof(shadow_control_t, speaker_active) == 58, "shadow_control_t layout changed");
 _Static_assert(offsetof(shadow_control_t, line_in_connected) == 59, "shadow_control_t layout changed");
 #define CTRL_MAP_BYTES 64
 
@@ -144,7 +143,7 @@ static float g_sr = 44100.0f;
 static uint8_t *volatile g_mailbox;
 static volatile int g_audio_in_offset;
 
-/* ---- jack state (feedback guard) ---------------------------------------- */
+/* ---- jack state (no microphone) ------------------------------------------ */
 static const volatile uint8_t *g_ctrl;
 static int g_ctrl_tries;
 
@@ -162,14 +161,13 @@ static void ctrl_attach(void)
     close(fd);
 }
 
-/* Built-in speaker playing and nothing in the line-in jack: the analog input
- * is the built-in mic hearing the speaker. Unknown (no shim) = no risk. */
-static int mic_feedback_risk(void)
+/* Nothing in the line-in jack: the analog input is the built-in mic.
+ * Unknown (no shim) = assume a cable. */
+static int analog_is_mic(void)
 {
     const volatile uint8_t *c = g_ctrl;
     if (!c) return 0;
-    return c[offsetof(shadow_control_t, speaker_active)] != 0 &&
-           c[offsetof(shadow_control_t, line_in_connected)] == 0;
+    return c[offsetof(shadow_control_t, line_in_connected)] == 0;
 }
 
 static inline float rd(_Atomic float *x) { return atomic_load_explicit(x, memory_order_relaxed); }
@@ -260,7 +258,7 @@ static strip_target_t strip_target(lim_t *in, int k)
 static float ext_target(lim_t *in)
 {
     const int muted = rd(&in->p[P_MUTE]) > 0.5f;
-    const int guard = (int)rd(&in->p[P_SOURCE]) == SRC_ANALOG && mic_feedback_risk();
+    const int guard = (int)rd(&in->p[P_SOURCE]) == SRC_ANALOG && analog_is_mic();
     return (muted || guard || !g_mailbox) ? 0.0f : rd(&in->p[P_MIX]);
 }
 

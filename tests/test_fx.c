@@ -4,7 +4,7 @@
  *
  *   test_fx <line-in-mixer.so>          functional tests
  *   test_fx <line-in-mixer.so> cpu      + timing
- *   test_fx <line-in-mixer.so> guard    feedback guard (creates a FAKE
+ *   test_fx <line-in-mixer.so> guard    no-mic rule (creates a FAKE
  *                                       /dev/shm/schwung-control: desktop only,
  *                                       refuses to run where one exists)
  *
@@ -286,32 +286,34 @@ int main(int argc, char **argv)
         if (!api) { shm_unlink("/schwung-control"); fprintf(stderr, "load failed\n"); return 1; }
         const tone_t inner = {220, 330, 0.3, 0.3}, ext1k = {1000, 1000, 0.25, 0.25};
         void *in = fresh();
-        check(exact_internal(in, inner, ext1k, 200), "FB GUARD (speaker, no line-in cable, ANALOG): internal only");
+        check(exact_internal(in, inner, ext1k, 200), "no cable + speaker, ANALOG: internal only (mic muted)");
+        c[58] = 0; /* headphones, still no cable */
+        check(exact_internal(in, inner, ext1k, 200), "no cable + headphones, ANALOG: internal only (mic muted)");
         set(in, "source", "USB-C");
         run_t r = run(in, (tone_t){0, 0, 0, 0}, ext1k, 200, 20, 0);
-        check(fabs(r.rms_l - 0.25 / sqrt(2)) < 0.002, "USB-C is not guarded (not the mic)");
+        check(fabs(r.rms_l - 0.25 / sqrt(2)) < 0.002, "USB-C is not muted (not the mic)");
         set(in, "source", "ANALOG");
-        c[59] = 1; /* cable plugged in */
+        c[59] = 1; c[58] = 1; /* cable plugged in, speaker */
         r = run(in, (tone_t){0, 0, 0, 0}, ext1k, 200, 20, 0);
-        check(fabs(r.rms_l - 0.25 / sqrt(2)) < 0.002, "cable plugged in: ANALOG passes");
-        c[59] = 0; c[58] = 0; /* headphones */
+        check(fabs(r.rms_l - 0.25 / sqrt(2)) < 0.002, "cable + speaker: ANALOG passes");
+        c[58] = 0; /* cable plugged in, headphones */
         r = run(in, (tone_t){0, 0, 0, 0}, ext1k, 200, 20, 0);
-        check(fabs(r.rms_l - 0.25 / sqrt(2)) < 0.002, "headphones (speaker off): mic passes");
+        check(fabs(r.rms_l - 0.25 / sqrt(2)) < 0.002, "cable + headphones: ANALOG passes");
         api->destroy_instance(in);
         shm_unlink("/schwung-control");
         printf(failures ? "FAILED: %d\n" : "PASS (guard)\n", failures);
         return failures ? 1 : 0;
     }
 
-    /* On a Move the module reads the REAL jack state: speaker on and no
-     * line-in cable engages its feedback guard, and every ANALOG test fails
-     * by design. Say so instead of leaving bare FAILs. */
+    /* On a Move the module reads the REAL jack state: no line-in cable
+     * mutes ANALOG (it would be the mic), and every ANALOG test fails by
+     * design. Say so instead of leaving bare FAILs. */
     {
         FILE *f = fopen("/dev/shm/schwung-control", "rb");
         uint8_t b[2];
-        if (f && fseek(f, 58, SEEK_SET) == 0 && fread(b, 1, 2, f) == 2 && b[0] && !b[1])
-            printf("NOTE: the real feedback guard is ON (speaker playing, no line-in cable):\n"
-                   "      ANALOG tests below fail by design. Plug in headphones or a line-in cable.\n");
+        if (f && fseek(f, 58, SEEK_SET) == 0 && fread(b, 1, 2, f) == 2 && !b[1])
+            printf("NOTE: no line-in cable is detected, so ANALOG (the mic) is muted:\n"
+                   "      ANALOG tests below fail by design. Plug in a line-in cable.\n");
         if (f) fclose(f);
     }
     void *h = g_so = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
